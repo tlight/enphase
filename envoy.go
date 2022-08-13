@@ -69,7 +69,7 @@ func DefaultHandler(payload *Payload) {
 		payload.Consumption.C.Power)
 }
 
-func (e *Envoy) Stream(handler func(*Payload)) {
+func (e *Envoy) StreamMeter(handler func(*Payload)) {
 	url := e.URL + "/stream/meter"
 
 	client := &http.Client{
@@ -93,25 +93,19 @@ func (e *Envoy) Stream(handler func(*Payload)) {
 			log.Fatalln(err)
 		}
 		json, err := GetJSON(string(line))
-
-		//fmt.Println(">" + string(line) + "<")
 		if err != nil {
-
+			// ignore invalid streams
 		} else {
-			//	fmt.Println(">" + json + "<")
 			payload, err := DecodeJSON(json)
 			if err != nil {
 				log.Println(err)
 			} else {
-				// log.Println(payload)
 				if handler != nil {
 					handler(payload)
 				} else {
 					DefaultHandler(payload)
 				}
-
 			}
-
 		}
 	}
 }
