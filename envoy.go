@@ -3,8 +3,8 @@ package enphase
 import (
 	"bufio"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"regexp"
@@ -20,7 +20,74 @@ type Envoy struct {
 	URL               string
 }
 
-type PhaseInfo struct {
+type Production struct {
+	Production  []*ProductionInfo `json:"production"`
+	Consumption []*ProductionInfo `json:"consumption"`
+	Storage     []*ProductionInfo `json:"storage"`
+}
+
+type ProductionInfo struct {
+	Type             string  `json:"type"`
+	ActiveCount      int     `json:"activeCount"`      // 1
+	MeasurementType  string  `json:"measurementType"`  // "production",
+	ReadingTime      int64   `json:"readingTime"`      // 1660454270,
+	WNow             float32 `json:"wNow"`             // 5261.947
+	WhLifetime       float32 `json:"whLifetime"`       // 30015.385,
+	VarhLeadLifetime float32 `json:"varhLeadLifetime"` // 3655.084,
+	VarhLagLifetime  float32 `json:"varhLagLifetime"`  // 14644.192,
+	VahLifetime      float32 `json:"vahLifetime"`      // 44573.333,
+	RmsCurrent       float32 `json:"rmsCurrent"`       // 22.295,
+	RmsVoltage       float32 `json:"rmsVoltage"`       // 715.657,
+	ReactPwr         float32 `json:"reactPwr"`         // -744.02,
+	ApprntPwr        float32 `json:"apprntPwr"`        // 5319.274,
+	PwrFactor        float32 `json:"pwrFactor"`        // 0.99,
+	WhToday          float32 `json:"whToday"`          // 16796.385,
+	WhLastSevenDays  float32 `json:"whLastSevenDays"`  // 29147.385,
+	VahToday         float32 `json:"vahToday"`         // 20645.333,
+	VarhLeadToday    float32 `json:"varhLeadToday"`    // 2802.084,
+	VarhLagToday     float32 `json:"varhLagToday"`     // 3578.192
+}
+
+func (e *Envoy) GetProduction() (*Production, error) {
+	url := e.URL + "/production.json"
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	reader := strings.NewReader(string(body))
+	obj := &Production{}
+	err = json.NewDecoder(reader).Decode(obj)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	return obj, nil
+	//payload, err := DecodeJSON(json)
+}
+
+type StreamMeter struct {
+	Production struct {
+		A StreamMeterInfo `json:"ph-a"`
+		B StreamMeterInfo `json:"ph-b"`
+		C StreamMeterInfo `json:"ph-c"`
+	} `json:"production"`
+	Net struct {
+		A StreamMeterInfo `json:"ph-a"`
+		B StreamMeterInfo `json:"ph-b"`
+		C StreamMeterInfo `json:"ph-c"`
+	} `json:"net-consumption"`
+	Consumption struct {
+		A StreamMeterInfo `json:"ph-a"`
+		B StreamMeterInfo `json:"ph-b"`
+		C StreamMeterInfo `json:"ph-c"`
+	} `json:"total-consumption"`
+}
+
+type StreamMeterInfo struct {
 	Power       float32 `json:"p"`
 	Q           float32 `json:"q"` //?
 	S           float32 `json:"s"` //?
@@ -30,25 +97,6 @@ type PhaseInfo struct {
 	Frequency   float32 `json:"f"`
 }
 
-type Payload struct {
-	Production struct {
-		A PhaseInfo `json:"ph-a"`
-		B PhaseInfo `json:"ph-b"`
-		C PhaseInfo `json:"ph-c"`
-	} `json:"production"`
-	Net struct {
-		A PhaseInfo `json:"ph-a"`
-		B PhaseInfo `json:"ph-b"`
-		C PhaseInfo `json:"ph-c"`
-	} `json:"net-consumption"`
-	Consumption struct {
-		A PhaseInfo `json:"ph-a"`
-		B PhaseInfo `json:"ph-b"`
-		C PhaseInfo `json:"ph-c"`
-	} `json:"total-consumption"`
-}
-
-// curl --digest --user installer:FEb5Dafd http://192.168.1.14/stream/meter
 func NewEnvoy(s, u, p, url string) *Envoy {
 	return &Envoy{
 		SerialNumber:      s,
@@ -58,20 +106,8 @@ func NewEnvoy(s, u, p, url string) *Envoy {
 	}
 }
 
-func DefaultHandler(payload *Payload) {
-	fmt.Printf("Solar: %4.0f, Net %4.0f, Consumption: %4.0f (A %4.0f B %4.0f C %4.0f)\n",
-		payload.Production.A.Power+payload.Production.B.Power+payload.Production.C.Power,
-		(payload.Production.A.Power+payload.Production.B.Power+payload.Production.C.Power)-
-			(payload.Consumption.A.Power+payload.Consumption.B.Power+payload.Consumption.C.Power),
-		payload.Consumption.A.Power+payload.Consumption.B.Power+payload.Consumption.C.Power,
-		payload.Consumption.A.Power,
-		payload.Consumption.B.Power,
-		payload.Consumption.C.Power)
-}
-
-func (e *Envoy) StreamMeter(handler func(*Payload)) {
+func (e *Envoy) GetStreamMeter(handler func(*StreamMeter)) {
 	url := e.URL + "/stream/meter"
-
 	client := &http.Client{
 		//Timeout: 30 * time.Second,
 		Transport: &digest.Transport{
@@ -79,56 +115,38 @@ func (e *Envoy) StreamMeter(handler func(*Payload)) {
 			Password: e.InstallerPassword,
 		},
 	}
-	res, err := client.Get(url)
+	resp, err := client.Get(url)
 	if err != nil {
 		log.Fatalln(err)
 	}
-	defer res.Body.Close()
-
-	//resp, err := http.Get(url)
-	reader := bufio.NewReader(res.Body)
+	defer resp.Body.Close()
+	reader := bufio.NewReader(resp.Body)
 	for {
 		line, err := reader.ReadBytes('\n')
 		if err != nil {
 			log.Fatalln(err)
 		}
-		json, err := GetJSON(string(line))
-		if err != nil {
-			// ignore invalid streams
-		} else {
-			payload, err := DecodeJSON(json)
+		re := regexp.MustCompile("data: (.*)") // extract json from string (everything after data:
+		matches := re.FindStringSubmatch(string(line))
+		if len(matches) == 1 {
+			reader := strings.NewReader(matches[1])
+			obj := &StreamMeter{}
+			err := json.NewDecoder(reader).Decode(obj)
 			if err != nil {
-				log.Println(err)
-			} else {
-				if handler != nil {
-					handler(payload)
-				} else {
-					DefaultHandler(payload)
-				}
+				log.Fatalln(err)
 			}
+			handler(obj)
 		}
 	}
 }
 
-func GetJSON(s string) (string, error) {
-	re := regexp.MustCompile("data: (.*)")
-	json := re.FindStringSubmatch(s)
-	if len(json) == 0 {
-		return "", errors.New("no matching data")
-	} else {
-		return json[1], nil
-	}
-
-}
-
-func DecodeJSON(s string) (*Payload, error) {
-	payload := &Payload{}
-	reader := strings.NewReader(s)
-
-	err := json.NewDecoder(reader).Decode(payload)
-	if err != nil {
-		fmt.Println(err)
-		return nil, err
-	}
-	return payload, nil
+func DefaultStreamMeterHandler(obj *StreamMeter) {
+	fmt.Printf("Solar: %4.0f, Net %4.0f, Consumption: %4.0f (A %4.0f B %4.0f C %4.0f)\n",
+		obj.Production.A.Power+obj.Production.B.Power+obj.Production.C.Power,
+		(obj.Production.A.Power+obj.Production.B.Power+obj.Production.C.Power)-
+			(obj.Consumption.A.Power+obj.Consumption.B.Power+obj.Consumption.C.Power),
+		obj.Consumption.A.Power+obj.Consumption.B.Power+obj.Consumption.C.Power,
+		obj.Consumption.A.Power,
+		obj.Consumption.B.Power,
+		obj.Consumption.C.Power)
 }
