@@ -69,7 +69,7 @@ func (e *Envoy) GetProduction() (*Production, error) {
 	//payload, err := DecodeJSON(json)
 }
 
-func (p Production) String() string {
+func (p *Production) String() string {
 	return fmt.Sprintf("Prod=%4.0f Cons=%4.0f", p.Production[1].WNow, p.Consumption[0].WNow)
 }
 
