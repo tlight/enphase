@@ -70,7 +70,7 @@ func (e *Envoy) GetProduction() (*Production, error) {
 }
 
 func (p *Production) String() string {
-	return fmt.Sprintf("+%4.0f -%4.0f =-%4.0f",
+	return fmt.Sprintf("+%4.0f -%4.0f =%4.0f",
 		p.Production[1].WNow,
 		p.Consumption[0].WNow,
 		p.Consumption[0].WNow-p.Production[1].WNow)
