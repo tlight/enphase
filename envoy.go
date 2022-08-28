@@ -113,7 +113,7 @@ func NewEnvoy(s, u, p, url string) *Envoy {
 	}
 }
 
-func (e *Envoy) GetStreamMeter(handler func(*StreamMeter)) {
+func (e *Envoy) GetStreamMeter(handler func(*StreamMeter)) error {
 	url := e.URL + "/stream/meter"
 	client := &http.Client{
 		//Timeout: 30 * time.Second,
@@ -124,14 +124,14 @@ func (e *Envoy) GetStreamMeter(handler func(*StreamMeter)) {
 	}
 	resp, err := client.Get(url)
 	if err != nil {
-		log.Fatalln(err)
+		return err
 	}
 	defer resp.Body.Close()
 	reader := bufio.NewReader(resp.Body)
 	for {
 		line, err := reader.ReadBytes('\n')
 		if err != nil {
-			log.Fatalln(err)
+			return err
 		}
 		re := regexp.MustCompile("data: (.*)") // extract json from string (everything after data:
 		matches := re.FindStringSubmatch(string(line))
@@ -140,7 +140,7 @@ func (e *Envoy) GetStreamMeter(handler func(*StreamMeter)) {
 			obj := &StreamMeter{}
 			err := json.NewDecoder(reader).Decode(obj)
 			if err != nil {
-				log.Fatalln(err)
+				return err
 			}
 			handler(obj)
 		}
