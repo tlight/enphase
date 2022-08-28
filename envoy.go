@@ -94,6 +94,13 @@ type StreamMeter struct {
 	} `json:"total-consumption"`
 }
 
+func (s *StreamMeter) String() string {
+	return fmt.Sprintf("+%4.0f -%4.0f =%4.0f",
+		s.Production.A.Power+s.Production.B.Power+s.Production.C.Power,
+		s.Consumption.A.Power+s.Consumption.B.Power+s.Consumption.C.Power,
+		s.Net.A.Power+s.Net.B.Power+s.Net.C.Power)
+}
+
 type StreamMeterInfo struct {
 	Power       float32 `json:"p"`
 	Q           float32 `json:"q"` //?
